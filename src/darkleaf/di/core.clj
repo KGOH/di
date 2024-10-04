@@ -83,7 +83,7 @@
 
 (defn- find-or-build [ctx key]
   (?? (find-obj ctx key)
-      (trampoline build-obj ctx key)))
+      (:result (trampoline build-obj ctx key))))
 
 (defn- resolve-dep [{:as ctx, :keys [under-construction]} acc key dep-type]
   (if (seq-contains? under-construction key)
@@ -108,7 +108,7 @@
             obj           (p/build factory resolved-deps)]
       (vswap! *stop-list conj #(p/demolish factory obj))
       (vswap! *built-map assoc key obj)
-      obj))))
+      {:result obj}))))
 
 (defn- try-run [proc]
   (try
@@ -136,7 +136,7 @@
 
 (defn- try-build [ctx key]
   (try
-    (?? (trampoline build-obj ctx key)
+    (?? (:result (trampoline build-obj ctx key))
         (missing-dependency! ctx key))
     (catch Throwable ex
       (let [exs (try-stop-started ctx)

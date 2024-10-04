@@ -64,8 +64,6 @@
    (.addSuppressed a b)
    a))
 
-(declare find-or-build)
-
 (defn- missing-dependency! [ctx key]
   (throw (ex-info (str "Missing dependency " key)
                   {:type ::missing-dependency
@@ -77,6 +75,15 @@
                   {:type ::circular-dependency
                    :path (:under-construction ctx)
                    :key  key})))
+
+(declare build-obj)
+
+(defn- find-obj [{:keys [*built-map]} key]
+  (get @*built-map key))
+
+(defn- find-or-build [ctx key]
+  (?? (find-obj ctx key)
+      (trampoline build-obj ctx key)))
 
 (defn- resolve-dep [{:as ctx, :keys [under-construction]} acc key dep-type]
   (if (seq-contains? under-construction key)
@@ -92,22 +99,16 @@
              {}
              deps))
 
-(defn- find-obj [{:keys [*built-map]} key]
-  (get @*built-map key))
-
 (defn- build-obj [{:as ctx, :keys [registry *built-map *stop-list]} key]
   (let [ctx           (update ctx :under-construction conj key)
         factory       (registry key)
-        declared-deps (p/dependencies factory)
-        resolved-deps (resolve-deps ctx declared-deps)
-        obj           (p/build factory resolved-deps)]
-    (vswap! *stop-list conj #(p/demolish factory obj))
-    (vswap! *built-map  assoc key obj)
-    obj))
-
-(defn- find-or-build [ctx key]
-  (?? (find-obj  ctx key)
-      (build-obj ctx key)))
+        declared-deps (p/dependencies factory)]
+    (fn []
+      (let [resolved-deps (resolve-deps ctx declared-deps)
+            obj           (p/build factory resolved-deps)]
+      (vswap! *stop-list conj #(p/demolish factory obj))
+      (vswap! *built-map assoc key obj)
+      obj))))
 
 (defn- try-run [proc]
   (try
@@ -135,7 +136,7 @@
 
 (defn- try-build [ctx key]
   (try
-    (?? (build-obj ctx key)
+    (?? (trampoline build-obj ctx key)
         (missing-dependency! ctx key))
     (catch Throwable ex
       (let [exs (try-stop-started ctx)
